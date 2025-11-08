@@ -1,0 +1,190 @@
+{
+  "name": "Validate Google Cloud Skills Boost Participants",
+  "nodes": [
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sheetId": "={{$env.SOURCE_SHEET_ID}}",
+        "range": "A:H",
+        "options": {}
+      },
+      "name": "Read Participants",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 1,
+      "position": [-1392, 64],
+      "id": "6927c101-c28d-4075-85e3-b6a55c1507db"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const email = item.json[\"Email Address\"]?.trim() || \"\";\n  const profileEmail = item.json[\"skill boost email\"]?.trim() || \"\";\n  const url = item.json[\"skill boost profile\"]?.trim() || \"\";\n\n  const isValidEmail = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);\n  const isValidProfileEmail = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(profileEmail);\n  const isValidUrl = url.includes(\"cloudskillsboost.google/public_profiles\");\n\n  const isValid = isValidEmail && isValidProfileEmail && isValidUrl;\n  item.json.isValid = isValid;\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1168, 64],
+      "id": "2b74ec8b-daa8-4773-8242-dec0aba71782",
+      "name": "Validate email & add isValid flag"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 },
+          "conditions": [
+            {
+              "id": "b10b025e-ccf6-418f-9e95-d8585233eee1",
+              "leftValue": "={{$json[\"isValid\"]}}",
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-944, 64],
+      "id": "b8e89819-041b-4386-96c7-483b07150565",
+      "name": "Split valid vs invalid emails"
+    },
+    {
+      "parameters": {
+        "url": "={{$json[\"skill boost profile\"]}}",
+        "options": {
+          "batching": { "batch": { "batchSize": 10 } },
+          "redirect": { "redirect": { "followRedirects": false } },
+          "response": {
+            "response": { "fullResponse": true, "responseFormat": "text" }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-624, -16],
+      "id": "dbb3d123-7554-498d-9665-6665cbb42ec4",
+      "name": "Check if profile is public",
+      "retryOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": { "mode": "combine", "combineBy": "combineByPosition", "options": {} },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [-464, -240],
+      "id": "08407722-8d0e-4703-8cad-2f2169e98d89",
+      "name": "Merge original & HTTP response"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Remove unnecessary fields\nconst fieldsToRemove = ['data','headers','error','stack','statusMessage','name','isValid'];\nreturn $input.all().map(item => {\n  const newItem = { ...item.json };\n  for (const f of fieldsToRemove) delete newItem[f];\n  return { json: newItem };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-256, -80],
+      "id": "279094a3-c075-4f18-a47b-49ad4ab2292e",
+      "name": "Clean unwanted columns"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 },
+          "conditions": [
+            {
+              "id": "30aa304f-28bb-486b-924c-f48fe3b5234a",
+              "leftValue": "={{$json.statusCode}}",
+              "rightValue": 200,
+              "operator": { "type": "number", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-48, -16],
+      "id": "7a92eea9-8250-4028-9a7e-fc4cc6a4c0aa",
+      "name": "Filter out private/invalid URLs"
+    },
+    {
+      "parameters": {
+        "jsCode": "const fieldsToRemove = ['statusCode'];\nreturn $input.all().map(item => {\n  const newItem = { ...item.json };\n  for (const f of fieldsToRemove) delete newItem[f];\n  return { json: newItem };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [176, -64],
+      "id": "75eb8971-88c1-427d-b07b-cd635762b38d",
+      "name": "Remove statusCode column"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "={{$env.VALIDATED_SHEET_ID}}",
+        "sheetName": "Sheet1",
+        "columns": { "mappingMode": "autoMapInputData" }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [400, -64],
+      "id": "52c9e707-a66a-495c-83c2-5fa6f6a6ad94",
+      "name": "Append validated rows"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "={{$env.REJECTED_SHEET_ID}}",
+        "sheetName": "Sheet1",
+        "columns": { "mappingMode": "autoMapInputData" }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [192, 288],
+      "id": "99938be6-a310-4cba-baa3-4a84f10e1e72",
+      "name": "Append rejected rows"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-1568, 64],
+      "id": "aa2aca25-e576-4b90-9d37-ae0697dd4b60",
+      "name": "Execute workflow"
+    }
+  ],
+  "connections": {
+    "Execute workflow": {
+      "main": [[{ "node": "Read Participants", "type": "main", "index": 0 }]]
+    },
+    "Read Participants": {
+      "main": [[{ "node": "Validate email & add isValid flag", "type": "main", "index": 0 }]]
+    },
+    "Validate email & add isValid flag": {
+      "main": [[{ "node": "Split valid vs invalid emails", "type": "main", "index": 0 }]]
+    },
+    "Split valid vs invalid emails": {
+      "main": [
+        [
+          { "node": "Check if profile is public", "type": "main", "index": 0 },
+          { "node": "Merge original & HTTP response", "type": "main", "index": 0 }
+        ],
+        [{ "node": "Append rejected rows", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check if profile is public": {
+      "main": [[{ "node": "Merge original & HTTP response", "type": "main", "index": 1 }]]
+    },
+    "Merge original & HTTP response": {
+      "main": [[{ "node": "Clean unwanted columns", "type": "main", "index": 0 }]]
+    },
+    "Clean unwanted columns": {
+      "main": [[{ "node": "Filter out private/invalid URLs", "type": "main", "index": 0 }]]
+    },
+    "Filter out private/invalid URLs": {
+      "main": [
+        [{ "node": "Remove statusCode column", "type": "main", "index": 0 }],
+        [{ "node": "Append rejected rows", "type": "main", "index": 0 }]
+      ]
+    },
+    "Remove statusCode column": {
+      "main": [[{ "node": "Append validated rows", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}
